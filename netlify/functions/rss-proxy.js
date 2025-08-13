@@ -29,33 +29,38 @@ exports.handler = async (event, context) => {
       headers: { Accept: "application/xml" },
     });
 
+    let body;
     if (format === "json") {
       // Parse the RSS data and send as JSON
       const feed = await parser.parseString(response.data);
-      return {
-        statusCode: 200,
-        body: JSON.stringify(feed),
-      };
+      body = JSON.stringify(feed);
     } else {
       // Send the original XML response
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/xml" },
-        body: response.data,
-      };
+      body = response.data;
     }
+
+    // Set CORS headers to allow cross-origin requests
+    return {
+      statusCode: 200,
+      headers: {
+        "Content-Type":
+          format === "json" ? "application/json" : "application/xml",
+        "Access-Control-Allow-Origin": "*", // Allow all origins (can be restricted if needed)
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS", // Allow GET requests
+        "Access-Control-Allow-Headers": "Content-Type", // Allow headers
+      },
+      body,
+    };
   } catch (error) {
     console.error(error);
 
     // Error handling: check if it's a network error or invalid RSS
     if (error.response) {
-      // The server responded with a status code outside the 2xx range
       return {
         statusCode: error.response.status,
         body: JSON.stringify({ error: error.response.data }),
       };
     } else if (error.request) {
-      // The request was made, but no response was received
       return {
         statusCode: 500,
         body: JSON.stringify({
@@ -63,7 +68,6 @@ exports.handler = async (event, context) => {
         }),
       };
     } else {
-      // General error (invalid RSS, etc.)
       return {
         statusCode: 500,
         body: JSON.stringify({
