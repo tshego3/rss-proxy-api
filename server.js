@@ -1,6 +1,6 @@
-const express = require('express');
-const axios = require('axios');
-const RSSParser = require('rss-parser');
+const express = require("express");
+const axios = require("axios");
+const RSSParser = require("rss-parser");
 
 const app = express();
 const port = 3000;
@@ -9,25 +9,36 @@ const port = 3000;
 const parser = new RSSParser();
 
 // Define an endpoint for fetching RSS feeds
-app.get('/rss-proxy', async (req, res) => {
-  const { url } = req.query;
+app.get("/rss-proxy", async (req, res) => {
+  const { url, format = "xml" } = req.query;
 
   // Check if URL parameter is provided
   if (!url) {
     return res.status(400).json({ error: 'Missing "url" query parameter.' });
   }
 
+  // Validate format parameter
+  if (format !== "xml" && format !== "json") {
+    return res
+      .status(400)
+      .json({ error: 'Format must be either "xml" or "json".' });
+  }
+
   try {
     // Fetch the RSS feed data
     const response = await axios.get(url, {
-      headers: { 'Accept': 'application/xml' },
+      headers: { Accept: "application/xml" },
     });
 
-    // Parse the RSS data
-    const feed = await parser.parseString(response.data);
-
-    // Send the parsed feed in JSON format
-    res.json(feed);
+    if (format === "json") {
+      // Parse the RSS data and send as JSON
+      const feed = await parser.parseString(response.data);
+      res.json(feed);
+    } else {
+      // Send the original XML response
+      res.type("application/xml");
+      res.send(response.data);
+    }
   } catch (error) {
     console.error(error);
 
@@ -37,10 +48,14 @@ app.get('/rss-proxy', async (req, res) => {
       res.status(error.response.status).json({ error: error.response.data });
     } else if (error.request) {
       // The request was made, but no response was received
-      res.status(500).json({ error: 'Network error, no response from server.' });
+      res
+        .status(500)
+        .json({ error: "Network error, no response from server." });
     } else {
       // General error (invalid RSS, etc.)
-      res.status(500).json({ error: 'Failed to parse RSS feed or invalid URL.' });
+      res
+        .status(500)
+        .json({ error: "Failed to parse RSS feed or invalid URL." });
     }
   }
 });
