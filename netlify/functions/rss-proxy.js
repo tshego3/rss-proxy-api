@@ -7,10 +7,26 @@ const parser = new RSSParser();
 exports.handler = async (event, context) => {
   const { url, format = "xml" } = event.queryStringParameters;
 
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+
+  // Handle preflight OPTIONS request
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers,
+      body: "",
+    };
+  }
+
   // Check if URL parameter is provided
   if (!url) {
     return {
       statusCode: 400,
+      headers,
       body: JSON.stringify({ error: 'Missing "url" query parameter.' }),
     };
   }
@@ -19,6 +35,7 @@ exports.handler = async (event, context) => {
   if (format !== "xml" && format !== "json") {
     return {
       statusCode: 400,
+      headers,
       body: JSON.stringify({ error: 'Format must be either "xml" or "json".' }),
     };
   }
@@ -50,11 +67,9 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 200,
       headers: {
+        ...headers,
         "Content-Type":
           format === "json" ? "application/json" : "application/xml",
-        "Access-Control-Allow-Origin": "*", // Allow all origins (can be restricted if needed)
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS", // Allow GET requests
-        "Access-Control-Allow-Headers": "Content-Type", // Allow headers
       },
       body,
     };
@@ -65,11 +80,13 @@ exports.handler = async (event, context) => {
     if (error.response) {
       return {
         statusCode: error.response.status,
+        headers,
         body: JSON.stringify({ error: error.response.data }),
       };
     } else if (error.request) {
       return {
         statusCode: 500,
+        headers,
         body: JSON.stringify({
           error: "Network error, no response from server.",
         }),
@@ -77,6 +94,7 @@ exports.handler = async (event, context) => {
     } else {
       return {
         statusCode: 500,
+        headers,
         body: JSON.stringify({
           error: "Failed to parse RSS feed or invalid URL.",
         }),
