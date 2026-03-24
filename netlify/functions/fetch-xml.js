@@ -89,7 +89,26 @@ exports.handler = async (event, context) => {
             body: response.data,
         };
     } catch (error) {
-        console.error(`Error fetching XML for ${url}:`, error.message);
+        console.error(`Primary fetch failed for ${url}:`, error.message);
+
+        // Fallback: Try Codetabs Proxy
+        try {
+            console.log(`Attempting fallback via Codetabs proxy for: ${url}`);
+            const codetabsUrl = `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`;
+            const response = await axios.get(codetabsUrl, { timeout: 10000 });
+            
+            return {
+                statusCode: 200,
+                headers: {
+                    ...headers,
+                    "Content-Type": "application/xml",
+                    "X-Proxy-Fallback": "codetabs",
+                },
+                body: response.data,
+            };
+        } catch (codetabsError) {
+            console.error(`Codetabs fallback also failed for ${url}:`, codetabsError.message);
+        }
 
         if (error.response) {
             const status = error.response.status;

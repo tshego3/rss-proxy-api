@@ -112,7 +112,34 @@ exports.handler = async (event, context) => {
       body,
     };
   } catch (error) {
-    console.error(`RSS Proxy error for URL: ${url}`, error.message);
+    console.warn(`Primary fetch failed for ${url}:`, error.message);
+
+    // Fallback: Try Codetabs Proxy
+    try {
+      console.log(`Attempting fallback via Codetabs proxy for: ${url}`);
+      const codetabsUrl = `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`;
+      const response = await axios.get(codetabsUrl, { timeout: 10000 });
+      
+      let body;
+      if (format === "json") {
+        const feed = await parser.parseString(response.data);
+        body = JSON.stringify(feed);
+      } else {
+        body = response.data;
+      }
+
+      return {
+        statusCode: 200,
+        headers: {
+          ...headers,
+          "Content-Type": format === "json" ? "application/json" : "application/xml",
+          "X-Proxy-Fallback": "codetabs",
+        },
+        body,
+      };
+    } catch (codetabsError) {
+      console.error(`Codetabs fallback also failed for ${url}:`, codetabsError.message);
+    }
 
     // Error handling: check if it's a network error or invalid RSS
     if (error.response) {
