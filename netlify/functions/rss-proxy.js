@@ -1,4 +1,3 @@
-const axios = require("axios");
 const RSSParser = require("rss-parser");
 
 // Create a new RSS parser instance
@@ -6,187 +5,171 @@ const parser = new RSSParser();
 
 // Rotate User-Agent strings to reduce bot detection
 const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 ];
 
 function getRandomUserAgent() {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+    return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
 async function fetchWithRetry(url, maxRetries = 2) {
-  let lastError;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await axios.get(url, {
-        timeout: 10000,
-        maxRedirects: 5,
-        headers: {
-          "Accept": "application/rss+xml, application/xml, application/atom+xml, text/xml;q=0.9, */*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Cache-Control": "no-cache",
-          "Pragma": "no-cache",
-          "Connection": "keep-alive",
-          "Sec-Fetch-Dest": "document",
-          "Sec-Fetch-Mode": "navigate",
-          "Sec-Fetch-Site": "none",
-          "Sec-Fetch-User": "?1",
-          "Upgrade-Insecure-Requests": "1",
-          "User-Agent": getRandomUserAgent(),
-        },
-      });
-      return response;
-    } catch (error) {
-      lastError = error;
-      if (attempt < maxRetries) {
-        // Wait before retrying (exponential backoff)
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-      }
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    "Accept": "application/rss+xml, application/xml, application/atom+xml, text/xml;q=0.9, */*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                    "Connection": "keep-alive",
+                    "User-Agent": getRandomUserAgent(),
+                },
+            });
+
+            clearTimeout(timeoutId);
+            const data = await response.text();
+            return { ok: response.ok, status: response.status, data };
+        } catch (error) {
+            lastError = error;
+            if (attempt < maxRetries) {
+                await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+            }
+        }
     }
-  }
-  throw lastError;
+    throw lastError;
 }
 
 exports.handler = async (event, context) => {
-  const { url, format = "xml" } = event.queryStringParameters;
+    const { url, format = "xml" } = event.queryStringParameters;
 
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-
-  // Handle preflight OPTIONS request
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers,
-      body: "",
+    const headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
     };
-  }
 
-  // Check if URL parameter is provided
-  if (!url) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Missing "url" query parameter.' }),
-    };
-  }
-
-  // Validate format parameter
-  if (format !== "xml" && format !== "json") {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Format must be either "xml" or "json".' }),
-    };
-  }
-
-  try {
-    // Fetch the RSS feed data with retry logic
-    const response = await fetchWithRetry(url);
-
-    let body;
-    if (format === "json") {
-      // Parse the RSS data and send as JSON
-      const feed = await parser.parseString(response.data);
-      body = JSON.stringify(feed);
-    } else {
-      // Send the original XML response
-      body = response.data;
+    if (event.httpMethod === "OPTIONS") {
+        return { statusCode: 204, headers, body: "" };
     }
 
-    // Set CORS headers to allow cross-origin requests
-    return {
-      statusCode: 200,
-      headers: {
-        ...headers,
-        "Content-Type":
-          format === "json" ? "application/json" : "application/xml",
-      },
-      body,
-    };
-  } catch (error) {
-    console.warn(`Primary fetch failed for ${url}:`, error.message);
+    if (!url) {
+        return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Missing "url" query parameter.' }),
+        };
+    }
 
-    // Fallback: Try Codetabs Proxy
+    if (format !== "xml" && format !== "json") {
+        return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Format must be either "xml" or "json".' }),
+        };
+    }
+
     try {
-      console.log(`Attempting fallback via Codetabs proxy for: ${url}`);
-      const codetabsUrl = `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`;
-      const response = await axios.get(codetabsUrl, { timeout: 10000 });
-      
-      let body;
-      if (format === "json") {
-        const feed = await parser.parseString(response.data);
-        body = JSON.stringify(feed);
-      } else {
-        body = response.data;
-      }
+        console.log(`Fetching RSS from: ${url}`);
+        const responseData = await fetchWithRetry(url);
 
-      return {
-        statusCode: 200,
-        headers: {
-          ...headers,
-          "Content-Type": format === "json" ? "application/json" : "application/xml",
-          "X-Proxy-Fallback": "codetabs",
-        },
-        body,
-      };
-    } catch (codetabsError) {
-      console.error(`Codetabs fallback also failed for ${url}:`, codetabsError.message);
+        if (!responseData.ok) {
+            throw { response: { status: responseData.status, data: responseData.data } };
+        }
+
+        let body;
+        if (format === "json") {
+            const feed = await parser.parseString(responseData.data);
+            body = JSON.stringify(feed);
+        } else {
+            body = responseData.data;
+        }
+
+        return {
+            statusCode: 200,
+            headers: {
+                ...headers,
+                "Content-Type": format === "json" ? "application/json" : "application/xml",
+            },
+            body,
+        };
+    } catch (error) {
+        console.warn(`Primary fetch failed for ${url}:`, error.message || error.response?.status);
+
+        // Fallback: Try Codetabs Proxy
+        try {
+            console.log(`Attempting fallback via Codetabs proxy for: ${url}`);
+            const codetabsUrl = `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`;
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+            const fallbackResponse = await fetch(codetabsUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (fallbackResponse.ok) {
+                const data = await fallbackResponse.text();
+                let body;
+                if (format === "json") {
+                    const feed = await parser.parseString(data);
+                    body = JSON.stringify(feed);
+                } else {
+                    body = data;
+                }
+
+                return {
+                    statusCode: 200,
+                    headers: {
+                        ...headers,
+                        "Content-Type": format === "json" ? "application/json" : "application/xml",
+                        "X-Proxy-Fallback": "codetabs",
+                    },
+                    body,
+                };
+            }
+        } catch (codetabsError) {
+            console.error(`Codetabs fallback also failed for ${url}:`, codetabsError.message);
+        }
+
+        if (error.response) {
+            const status = error.response.status;
+            const isCloudflare =
+                typeof error.response.data === "string" &&
+                (error.response.data.includes("cf-chl") ||
+                    error.response.data.includes("Just a moment"));
+
+            return {
+                statusCode: status,
+                headers,
+                body: JSON.stringify({
+                    error: isCloudflare
+                        ? `The upstream server (${new URL(url).hostname}) is protected by Cloudflare and blocked this request (HTTP ${status}).`
+                        : `Upstream server returned HTTP ${status}.`,
+                    url,
+                    statusCode: status,
+                }),
+            };
+        } else if (error.name === "AbortError") {
+            return {
+                statusCode: 504,
+                headers,
+                body: JSON.stringify({ error: `Request to ${new URL(url).hostname} timed out.`, url }),
+            };
+        } else {
+            return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ error: "Failed to parse RSS feed or invalid URL.", url }),
+            };
+        }
     }
-
-    // Error handling: check if it's a network error or invalid RSS
-    if (error.response) {
-      const status = error.response.status;
-      const isCloudflare =
-        typeof error.response.data === "string" &&
-        (error.response.data.includes("cf-chl") ||
-          error.response.data.includes("Just a moment"));
-
-      return {
-        statusCode: status,
-        headers,
-        body: JSON.stringify({
-          error: isCloudflare
-            ? `The upstream server (${new URL(url).hostname}) is protected by Cloudflare and blocked this request (HTTP ${status}).`
-            : `Upstream server returned HTTP ${status}.`,
-          url,
-          statusCode: status,
-        }),
-      };
-    } else if (error.code === "ECONNABORTED" || error.message.includes("timeout")) {
-      return {
-        statusCode: 504,
-        headers,
-        body: JSON.stringify({
-          error: `Request to ${new URL(url).hostname} timed out.`,
-          url,
-        }),
-      };
-    } else if (error.request) {
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error: `Network error: no response from ${new URL(url).hostname}.`,
-          url,
-        }),
-      };
-    } else {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          error: "Failed to parse RSS feed or invalid URL.",
-          url,
-        }),
-      };
-    }
-  }
 };
